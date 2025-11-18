@@ -96,8 +96,11 @@ def get_questions():
             return jsonify({"error": "La cantidad debe ser un número entero positivo"}), 400
         
         # Obtener datos del sheet
+        print("Intentando conectar con Google Sheets...")
         sheet = get_google_sheet()
+        print("Conexión exitosa, obteniendo datos...")
         all_rows = sheet.get_all_values()
+        print(f"Se obtuvieron {len(all_rows)} filas del documento")
         
         # Parsear preguntas (saltando encabezado si existe)
         preguntas = []
@@ -106,8 +109,14 @@ def get_questions():
             if question:
                 preguntas.append(question)
         
+        print(f"Se parsearon {len(preguntas)} preguntas válidas")
+        
         if not preguntas:
-            return jsonify({"error": "No se encontraron preguntas válidas en el documento"}), 404
+            return jsonify({
+                "error": "No se encontraron preguntas válidas en el documento",
+                "filas_totales": len(all_rows),
+                "ayuda": "Verifica que tu Sheet tenga datos en las columnas B (pregunta), C-F (opciones) y G (respuesta correcta)"
+            }), 404
         
         # Seleccionar preguntas aleatorias
         cantidad_disponible = min(cantidad, len(preguntas))
@@ -125,8 +134,22 @@ def get_questions():
         
         return jsonify({"preguntas": resultado}), 200
     
+    except ValueError as ve:
+        print(f"Error de configuración: {str(ve)}")
+        return jsonify({
+            "error": "Error de configuración",
+            "detalle": str(ve),
+            "ayuda": "Verifica que GOOGLE_CREDENTIALS y SHEET_ID estén configurados en las variables de entorno"
+        }), 500
     except Exception as e:
-        return jsonify({"error": f"Error al obtener preguntas: {str(e)}"}), 500
+        print(f"Error inesperado: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "Error al obtener preguntas",
+            "detalle": str(e),
+            "tipo": type(e).__name__
+        }), 500
 
 @app.route('/api/validate-answers', methods=['POST'])
 def validate_answers():
