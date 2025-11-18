@@ -81,9 +81,66 @@ def home():
         "mensaje": "API de Preguntas v1.0",
         "endpoints": {
             "obtener_preguntas": "POST /api/get-questions",
-            "validar_respuestas": "POST /api/validate-answers"
+            "validar_respuestas": "POST /api/validate-answers",
+            "diagnostico": "GET /api/test-connection"
         }
     })
+
+@app.route('/api/test-connection', methods=['GET'])
+def test_connection():
+    """Endpoint de diagnóstico para probar la conexión con Google Sheets"""
+    diagnostico = {
+        "google_credentials_configurado": False,
+        "sheet_id_configurado": False,
+        "conexion_exitosa": False,
+        "filas_encontradas": 0,
+        "error": None
+    }
+    
+    try:
+        # Verificar variables de entorno
+        creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+        sheet_id = os.environ.get('SHEET_ID')
+        
+        diagnostico["google_credentials_configurado"] = bool(creds_json)
+        diagnostico["sheet_id_configurado"] = bool(sheet_id)
+        
+        if not creds_json:
+            diagnostico["error"] = "GOOGLE_CREDENTIALS no está configurado en las variables de entorno"
+            return jsonify(diagnostico), 500
+        
+        if not sheet_id:
+            diagnostico["error"] = "SHEET_ID no está configurado en las variables de entorno"
+            return jsonify(diagnostico), 500
+        
+        # Intentar conectar
+        print("Intentando conectar con Google Sheets...")
+        sheet = get_google_sheet()
+        print("Conexión exitosa!")
+        
+        # Obtener datos
+        all_rows = sheet.get_all_values()
+        diagnostico["conexion_exitosa"] = True
+        diagnostico["filas_encontradas"] = len(all_rows)
+        
+        # Mostrar muestra de las primeras 3 filas (sin datos sensibles)
+        if len(all_rows) > 0:
+            diagnostico["muestra_estructura"] = {
+                "fila_1_columnas": len(all_rows[0]),
+                "tiene_encabezados": bool(all_rows[0]),
+                "filas_con_datos": len([r for r in all_rows if any(r)])
+            }
+        
+        return jsonify(diagnostico), 200
+        
+    except json.JSONDecodeError as je:
+        diagnostico["error"] = f"GOOGLE_CREDENTIALS no es un JSON válido: {str(je)}"
+        return jsonify(diagnostico), 500
+    except Exception as e:
+        diagnostico["error"] = f"{type(e).__name__}: {str(e)}"
+        import traceback
+        print(traceback.format_exc())
+        return jsonify(diagnostico), 500
 
 @app.route('/api/get-questions', methods=['POST'])
 def get_questions():
@@ -162,7 +219,9 @@ def validate_answers():
             return jsonify({"error": "No se enviaron respuestas"}), 400
         
         # Obtener datos del sheet
+        print("Intentando conectar con Google Sheets para validar...")
         sheet = get_google_sheet()
+        print("Conexión exitosa, obteniendo datos...")
         all_rows = sheet.get_all_values()
         
         # Crear diccionario de preguntas con respuestas correctas
@@ -171,6 +230,8 @@ def validate_answers():
             question = parse_question_row(row, idx)
             if question:
                 preguntas_dict[question["id"]] = question
+        
+        print(f"Se cargaron {len(preguntas_dict)} preguntas para validación")
         
         # Validar respuestas
         resultados = []
@@ -217,8 +278,22 @@ def validate_answers():
             "incorrectas": incorrectas
         }), 200
     
+    except ValueError as ve:
+        print(f"Error de configuración: {str(ve)}")
+        return jsonify({
+            "error": "Error de configuración",
+            "detalle": str(ve),
+            "ayuda": "Verifica que GOOGLE_CREDENTIALS y SHEET_ID estén configurados en las variables de entorno"
+        }), 500
     except Exception as e:
-        return jsonify({"error": f"Error al validar respuestas: {str(e)}"}), 500
+        print(f"Error inesperado al validar: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "Error al validar respuestas",
+            "detalle": str(e),
+            "tipo": type(e).__name__
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
