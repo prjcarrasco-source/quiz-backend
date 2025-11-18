@@ -92,28 +92,42 @@ def test_connection():
     diagnostico = {
         "google_credentials_configurado": False,
         "sheet_id_configurado": False,
+        "service_account_email": None,
+        "sheet_id_value": None,
         "conexion_exitosa": False,
         "filas_encontradas": 0,
         "error": None
     }
     
+    # Verificar variables de entorno
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+    sheet_id = os.environ.get('SHEET_ID')
+    
+    diagnostico["google_credentials_configurado"] = bool(creds_json)
+    diagnostico["sheet_id_configurado"] = bool(sheet_id)
+    diagnostico["sheet_id_value"] = sheet_id if sheet_id else "NO CONFIGURADO"
+    
+    # Extraer el email del service account PRIMERO (antes de intentar conectar)
+    if creds_json:
+        try:
+            creds_dict = json.loads(creds_json)
+            diagnostico["service_account_email"] = creds_dict.get("client_email", "NO ENCONTRADO EN JSON")
+            diagnostico["project_id"] = creds_dict.get("project_id", "NO ENCONTRADO")
+        except Exception as e:
+            diagnostico["service_account_email"] = f"ERROR AL PARSEAR JSON: {str(e)}"
+    else:
+        diagnostico["service_account_email"] = "GOOGLE_CREDENTIALS NO CONFIGURADO"
+    
+    if not creds_json:
+        diagnostico["error"] = "GOOGLE_CREDENTIALS no está configurado en las variables de entorno"
+        return jsonify(diagnostico), 500
+    
+    if not sheet_id:
+        diagnostico["error"] = "SHEET_ID no está configurado en las variables de entorno"
+        return jsonify(diagnostico), 500
+    
+    # Ahora intentar conectar
     try:
-        # Verificar variables de entorno
-        creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-        sheet_id = os.environ.get('SHEET_ID')
-        
-        diagnostico["google_credentials_configurado"] = bool(creds_json)
-        diagnostico["sheet_id_configurado"] = bool(sheet_id)
-        
-        if not creds_json:
-            diagnostico["error"] = "GOOGLE_CREDENTIALS no está configurado en las variables de entorno"
-            return jsonify(diagnostico), 500
-        
-        if not sheet_id:
-            diagnostico["error"] = "SHEET_ID no está configurado en las variables de entorno"
-            return jsonify(diagnostico), 500
-        
-        # Intentar conectar
         print("Intentando conectar con Google Sheets...")
         sheet = get_google_sheet()
         print("Conexión exitosa!")
@@ -133,11 +147,9 @@ def test_connection():
         
         return jsonify(diagnostico), 200
         
-    except json.JSONDecodeError as je:
-        diagnostico["error"] = f"GOOGLE_CREDENTIALS no es un JSON válido: {str(je)}"
-        return jsonify(diagnostico), 500
     except Exception as e:
         diagnostico["error"] = f"{type(e).__name__}: {str(e)}"
+        diagnostico["instrucciones"] = f"DEBES COMPARTIR tu Google Sheet con este email: {diagnostico['service_account_email']}"
         import traceback
         print(traceback.format_exc())
         return jsonify(diagnostico), 500
